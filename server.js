@@ -130,5 +130,6 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
     ON CONFLICT (code) DO NOTHING`);
   if (!(await q("SELECT 1 FROM users WHERE role='admin'")).rowCount)
     await q("INSERT INTO users(name,email,password,role) VALUES ('Administrator','admin',$1,'admin')", [hash('admin123')]);
+  if (process.env.SEED_DEMO === 'true') { const n = await require('./seed-demo')(q); console.log('Demo students added:', n); }
   app.listen(process.env.PORT || 5000, () => console.log('IEM Portal (PostgreSQL) running at http://localhost:' + (process.env.PORT || 5000)));
 })().catch(e => { console.error('Startup failed:', e.message); process.exit(1); });
