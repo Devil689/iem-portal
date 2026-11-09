@@ -24,8 +24,15 @@ module.exports = async function seedDemo(q) {
   let created = 0;
   for (let i = 0; i < STUDENTS.length; i++) {
     const s = STUDENTS[i];
-    if ((await q('SELECT 1 FROM users WHERE email=$1', [s.email])).rowCount) continue;
-    const uid = (await q('INSERT INTO users(name,email,phone,password) VALUES ($1,$2,$3,$4) RETURNING id', [s.name, s.email, s.phone, pw])).rows[0].id;
+    let uid;
+    const ex = await q('SELECT id FROM users WHERE email=$1', [s.email]);
+    if (ex.rowCount) {
+      uid = ex.rows[0].id;
+      // already complete? (account-only students have no application by design)
+      if (s.state === 'none' || (await q('SELECT 1 FROM applications WHERE user_id=$1', [uid])).rowCount) continue;
+    } else {
+      uid = (await q('INSERT INTO users(name,email,phone,password) VALUES ($1,$2,$3,$4) RETURNING id', [s.name, s.email, s.phone, pw])).rows[0].id;
+    }
     created++;
     if (s.state === 'none') continue;
 
@@ -35,10 +42,10 @@ module.exports = async function seedDemo(q) {
       `INSERT INTO applications(user_id,status,payment_status,submitted_at,full_name,program_code,dob,gender,aadhaar,nationality,category,religion,blood_group,
          mobile,email,address1,city,state,pin,country,guardian_name,relation,guardian_mobile,occupation,income,
          board10,school10,year10,roll10,board12,school12,year12,roll12,entrance_rank,domicile,marks10,marks12)
-       VALUES ($1,$2,$3,${submitted ? 'NOW() - ($4 || \' hours\')::interval' : 'NULL'},$5,$6,$7,$8,$9,'Indian',$10,'Hindu','B+',
+       VALUES ($1,$2,$3,$4::timestamptz,$5,$6,$7,$8,$9,'Indian',$10,'Hindu','B+',
          $11,$12,$13,$14,'West Bengal',$15,'India',$16,'Father',$17,'Service','5 - 10 Lakh',
          'CBSE',$18,'2022',$19,'CBSE',$20,'2024',$21,$22,'West Bengal',$23,$24) RETURNING id, app_no`,
-      [uid, submitted ? 'Submitted' : 'Draft', submitted ? 'Success' : 'Pending', String(200 - i * 10),
+      [uid, submitted ? 'Submitted' : 'Draft', submitted ? 'Success' : 'Pending', submitted ? new Date(Date.now() - (200 - i * 10) * 3600 * 1000).toISOString() : null,
        s.name, s.prog, '2006-0' + ((i % 9) + 1) + '-1' + (i % 9), s.gender, '5000' + String(10000000 + i),
        s.cat, s.phone, s.email, (10 + i) + ', Demo Road', s.city, '7000' + String(10 + i), 'Mr. ' + first + ' Senior', '98300' + String(10000 + i),
        'Demo Public School', 'R10' + (1000 + i), 'Demo Senior Secondary', 'R12' + (1000 + i), 'JEE Main - ' + (20000 + i * 137), s.m10, s.m12]
