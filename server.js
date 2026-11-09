@@ -55,6 +55,15 @@ const auth = wrap(async (req, res, next) => {
 });
 app.use('/api', auth);
 app.get('/api/me', (req, res) => res.json(req.user));
+app.post('/api/change-password', wrap(async (req, res) => {
+  const { current, next } = req.body || {};
+  const row = (await q('SELECT password FROM users WHERE id=$1', [req.user.id])).rows[0];
+  if (!row || !check(current || '', row.password)) return res.status(400).json({ error: 'Current password is incorrect' });
+  if (typeof next !== 'string' || next.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  if (next === current) return res.status(400).json({ error: 'New password must be different from the current one' });
+  await q('UPDATE users SET password=$1 WHERE id=$2', [hash(next), req.user.id]);
+  res.json({ ok: true });
+}));
 app.get('/api/notifications', wrap(async (req, res) => res.json((await q('SELECT * FROM notifications WHERE user_id=$1 ORDER BY id DESC', [req.user.id])).rows)));
 app.post('/api/notifications/read', wrap(async (req, res) => { await q('UPDATE notifications SET is_read=TRUE WHERE user_id=$1', [req.user.id]); res.json({ ok: true }); }));
 
