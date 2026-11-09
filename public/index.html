@@ -249,6 +249,29 @@ function Notifs({ refresh }) {
   const [n, setN] = useState([]); useEffect(() => { API('/notifications').then(x => { setN(x); API('/notifications/read', 'POST').then(refresh); }); }, []);
   return (<div><h1>Notifications</h1>{n.map(x => <div key={x.id} className="card" style={{ marginTop: 12 }}>🔔 {x.message}<br /><small style={{ color: 'var(--mu)' }}>{fdate(x.created_at)}</small></div>)}{!n.length && <p className="sub">No notifications.</p>}</div>);
 }
+function ChangePassword() {
+  const [cur, setCur] = useState(''), [nw, setNw] = useState(''), [cf, setCf] = useState(''), [err, setErr] = useState(''), [ok, setOk] = useState(false), [busy, setBusy] = useState(false), [show, setShow] = useState(false);
+  const submit = async () => {
+    setErr(''); setOk(false);
+    if (!cur || !nw || !cf) return setErr('Please fill in all three fields');
+    if (nw.length < 6) return setErr('New password must be at least 6 characters');
+    if (nw !== cf) return setErr('New password and confirm password do not match');
+    setBusy(true);
+    try { await API('/change-password', 'POST', { current: cur, next: nw }); setOk(true); setCur(''); setNw(''); setCf(''); } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+  const t = show ? 'text' : 'password';
+  return (<div><h1>Change Password</h1><p className="sub">Choose a new password for your account. Use at least 6 characters.</p>
+    <div className="card" style={{ maxWidth: 520 }}>
+      <label>Current Password</label><input type={t} value={cur} onChange={e => setCur(e.target.value)} autoComplete="current-password" />
+      <label style={{ marginTop: 12 }}>New Password</label><input type={t} value={nw} onChange={e => setNw(e.target.value)} autoComplete="new-password" />
+      <label style={{ marginTop: 12 }}>Confirm New Password</label><input type={t} value={cf} onChange={e => setCf(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} autoComplete="new-password" />
+      <label style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" style={{ width: 'auto' }} checked={show} onChange={e => setShow(e.target.checked)} /> Show passwords</label>
+      {err && <div className="alert al-e" style={{ marginTop: 14 }}>{err}</div>}
+      {ok && <div className="alert al-o" style={{ marginTop: 14 }}>✓ Password changed successfully. Use the new password the next time you log in.</div>}
+      <button className="btn" style={{ marginTop: 16 }} disabled={busy} onClick={submit}>🔑 Update Password</button>
+    </div></div>);
+}
 function Profile({ user }) { return (<div><h1>Profile</h1><div className="card" style={{ marginTop: 14 }}><div className="kv"><span>Name</span><span>{user.name}</span><span>Email</span><span>{user.email}</span><span>Phone</span><span>{user.phone || '-'}</span><span>Role</span><span>{user.role}</span></div></div></div>); }
 
 function Admin() {
@@ -280,7 +303,7 @@ function App() {
   const openLatest = async v => { const a = (await API('/applications/mine')).find(x => x.status === 'Draft'); a ? go(v, a.id) : go('programs'); };
   if (!ready) return <div className="center">Loading…</div>;
   if (!user) return view === 'register' ? <Register go={go} /> : <Login go={go} onLogin={u => { setUser(u); setView(home(u)); }} />;
-  const items = user.role === 'admin' ? [['admin', '🏠', 'Dashboard']] : [['dashboard', '🏠', 'Dashboard'], ['programs', '🏛', 'Courses / Programs'], ['form', '📝', 'New Application'], ['myapps', '📄', 'My Applications'], ['docs', '⬆', 'Upload Documents'], ['payment', '💳', 'Payments'], ['notifs', '🔔', 'Notifications'], ['profile', '👤', 'Profile']];
+  const items = user.role === 'admin' ? [['admin', '🏠', 'Dashboard'], ['password', '🔑', 'Change Password']] : [['dashboard', '🏠', 'Dashboard'], ['programs', '🏛', 'Courses / Programs'], ['form', '📝', 'New Application'], ['myapps', '📄', 'My Applications'], ['docs', '⬆', 'Upload Documents'], ['payment', '💳', 'Payments'], ['notifs', '🔔', 'Notifications'], ['profile', '👤', 'Profile'], ['password', '🔑', 'Change Password']];
   const click = k => { if (k === 'form') { setPreset(''); setAppId(null); go('form'); } else if (k === 'docs' || k === 'payment') openLatest(k); else go(k); };
   const need = (v) => appId ? null : 'Open an application first.';
   let page;
@@ -293,6 +316,7 @@ function App() {
   else if (view === 'myapps') page = <MyApps go={go} openApp={openApp} />;
   else if (view === 'notifs') page = <Notifs refresh={refresh} />;
   else if (view === 'profile') page = <Profile user={user} />;
+  else if (view === 'password') page = <ChangePassword />;
   else if (view === 'admin') page = <Admin />;
   else page = <div className="center">Nothing here yet. Use the menu.</div>;
   return (<div><Header user={user} go={go} unread={unread} logout={logout} />
