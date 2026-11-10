@@ -46,6 +46,44 @@ app.post('/api/login', wrap(async (req, res) => {
   res.json({ token, user: { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role } });
 }));
 
+// ---- forgot / reset password (email link, sent through Brevo's web API) ----
+// Needs BREVO_API_KEY + MAIL_FROM (a sender verified in Brevo) + APP_URL. Without them the link is only printed in the server log.
+const sha = v => crypto.createHash('sha256').update(String(v)).digest('hex');
+async function sendMail(to, subject, html, text) {
+  if (!process.env.BREVO_API_KEY || !process.env.MAIL_FROM) { console.log('[email not configured] to:', to, '|', subject, '|', text); return false; }
+  const r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST',
+    headers: { 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ sender: { name: 'IEM Admission Portal', email: process.env.MAIL_FROM }, to: [{ email: to }], subject, htmlContent: html, textContent: text }) });
+  if (!r.ok) throw new Error('email failed: ' + r.status + ' ' + (await r.text()).slice(0, 200));
+  return true;
+}
+app.post('/api/forgot-password', wrap(async (req, res) => {
+  const e = (((req.body || {}).email) || '').trim().toLowerCase();
+  const generic = { ok: true, message: 'If that email is registered, a reset link has been sent. It is valid for 30 minutes.' };
+  const u = e && (await q("SELECT id,name,email FROM users WHERE email=$1 AND role='applicant'", [e])).rows[0];
+  if (!u) return res.json(generic);                         // same answer either way, so emails cannot be guessed
+  const token = crypto.randomBytes(32).toString('hex');
+  await q("INSERT INTO password_resets(user_id,token_hash,expires_at) VALUES ($1,$2,NOW() + INTERVAL '30 minutes') ON CONFLICT (user_id) DO UPDATE SET token_hash=EXCLUDED.token_hash, expires_at=EXCLUDED.expires_at", [u.id, sha(token)]);
+  const base = (process.env.APP_URL || (req.protocol + '://' + req.get('host'))).replace(/\/$/, '');
+  const link = base + '/#reset=' + token;
+  try {
+    await sendMail(u.email, 'Reset your IEM Admission Portal password',
+      '<p>Hello ' + u.name.replace(/[<>&]/g, '') + ',</p><p>Click the link below to set a new password. It is valid for 30 minutes.</p><p><a href="' + link + '">Reset my password</a></p><p>If you did not ask for this, ignore this email.</p>',
+      'Hello ' + u.name + ', open this link to set a new password (valid 30 minutes): ' + link);
+  } catch (err) { console.error(err.message); }
+  res.json(generic);
+}));
+app.post('/api/reset-password', wrap(async (req, res) => {
+  const { token, next } = req.body || {};
+  if (typeof next !== 'string' || next.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  const r = (await q('SELECT user_id FROM password_resets WHERE token_hash=$1 AND expires_at>NOW()', [sha(token || '')])).rows[0];
+  if (!r) return res.status(400).json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
+  await q('UPDATE users SET password=$1 WHERE id=$2', [hash(next), r.user_id]);
+  await q('DELETE FROM password_resets WHERE user_id=$1', [r.user_id]);
+  for (const [t, id] of sessions) if (id === r.user_id) sessions.delete(t);   // sign out other devices
+  res.json({ ok: true });
+}));
+
 // ---- everything below needs login ----
 const auth = wrap(async (req, res, next) => {
   const uid = sessions.get((req.headers.authorization || '').replace('Bearer ', ''));
