@@ -11,6 +11,7 @@ button{font:inherit;cursor:pointer}h1,h2,h3{color:var(--navy);margin:0}
 .hdr{background:#fff;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:14px;padding:10px 20px;flex-wrap:wrap}
 .logo{height:54px;width:auto;flex:none}
 .brand{flex:1;min-width:200px}.brand b{display:block;font-size:20px;color:var(--navy);letter-spacing:.3px}.brand span{color:var(--mu);font-size:13px}
+.pm{position:relative}.pm>a{display:inline-block;padding:6px 10px;border-radius:8px;user-select:none}.pm>a:hover,.pm>a.open{background:#eef1fa}.pm .dd{position:absolute;right:0;top:calc(100% + 6px);min-width:210px;background:#fff;border:1px solid var(--bd);border-radius:10px;box-shadow:0 8px 24px rgba(10,30,90,.15);padding:6px;z-index:50}.pm .dd .who{padding:8px 10px;border-bottom:1px solid var(--bd);margin-bottom:4px;font-size:13px;color:#555}.pm .dd .who b{display:block;color:#1b2030;font-size:14px}.pm .dd a{display:block;padding:8px 10px;border-radius:6px;white-space:nowrap}.pm .dd a:hover{background:#eef1fa}.pm .dd a.out{color:#b3261e;border-top:1px solid var(--bd);margin-top:4px;border-radius:0 0 6px 6px}.pm .car{display:inline-block;transition:transform .15s}.pm>a.open .car{transform:rotate(180deg)}
 .nav{display:flex;gap:18px;align-items:center}.nav a{color:#1b2030;cursor:pointer;position:relative}
 .badge{background:#d62839;color:#fff;border-radius:99px;font-size:10px;padding:0 5px;position:absolute;top:-8px;right:-12px}
 .layout{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 140px)}
@@ -97,11 +98,30 @@ const API = async (p, m = 'GET', b) => {
 const money = n => '₹ ' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 const fdate = s => s ? new Date(s.replace(' ', 'T') + (s.includes('Z') ? '' : 'Z')).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
 const Logo = () => <img className="logo" src="/logo.png" alt="IEM logo" />;
+function ProfileMenu({ user, go, logout }) {
+  const [open, setOpen] = useState(false), ref = React.useRef(null);
+  useEffect(() => {
+    const away = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = e => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+  }, []);
+  const pick = v => { setOpen(false); go(v); };
+  const appl = user.role === 'applicant';
+  return (<div className="pm" ref={ref}><a className={open ? 'open' : ''} onClick={() => setOpen(!open)} aria-haspopup="menu" aria-expanded={open}>👤 {user.name.split(' ')[0]} <span className="car">▾</span></a>
+    {open && <div className="dd" role="menu"><div className="who"><b>{user.name}</b>{user.email}</div>
+      <a onClick={() => pick('profile')}>👤 My Profile</a>
+      {appl && <a onClick={() => pick('myapps')}>📄 My Applications</a>}
+      {appl && <a onClick={() => pick('payments')}>💳 Payments</a>}
+      {appl && <a onClick={() => pick('notifs')}>🔔 Notifications</a>}
+      <a onClick={() => pick('password')}>🔑 Change Password</a>
+      <a className="out" onClick={() => { setOpen(false); logout(); }}>↪ Logout</a></div>}</div>);
+}
 const Header = ({ user, go, unread, logout }) => (
   <div className="hdr"><Logo /><div className="brand"><b>IEM ADMISSION PORTAL</b><span>Institute of Engineering &amp; Management, Kolkata</span></div>
     {user ? <div className="nav"><a onClick={() => go(user.role === 'admin' ? 'admin' : 'dashboard')}>Home</a>
       {user.role === 'applicant' && <React.Fragment><a onClick={() => go('myapps')}>My Applications</a><a onClick={() => go('notifs')}>Notifications{unread > 0 && <span className="badge">{unread}</span>}</a></React.Fragment>}
-      <a onClick={() => go('profile')}>👤 {user.name.split(' ')[0]} ▾</a></div>
+      <ProfileMenu user={user} go={go} logout={logout} /></div>
       : <div className="nav"><a onClick={() => go('home')}>🏠 Home</a></div>}
   </div>);
 const Footer = () => <div className="ftr"><span>© 2026 Institute of Engineering &amp; Management, Kolkata. All rights reserved.</span><span>Privacy Policy | Terms &amp; Conditions | Disclaimer</span></div>;
@@ -484,6 +504,24 @@ function MyApps({ go, openApp }) {
       <td><button className="btn sm" onClick={() => openApp(a.status === 'Draft' ? 'form' : 'confirm', a.id)}>{a.status === 'Draft' ? 'Continue' : 'View'}</button></td></tr>)}
     {!apps.length && <tr><td colSpan="5">No applications yet. Go to Courses / Programs to apply.</td></tr>}</tbody></table></div></div>);
 }
+function Payments({ go }) {
+  const [rows, setRows] = useState(null), [err, setErr] = useState('');
+  useEffect(() => { (async () => { try { const apps = await API('/applications/mine'); setRows(await Promise.all(apps.map(a => API('/applications/' + a.id)))); } catch (e) { setErr(e.message); } })(); }, []);
+  if (err) return <div className="alert al-e">{err}</div>;
+  if (!rows) return <div className="center">Loading…</div>;
+  const paid = rows.filter(a => a.payment_status === 'Success');
+  return (<div><h1>Payments</h1><p className="sub">Your fee payment status for every application.</p>
+    {!rows.length && <div className="card" style={{ marginTop: 14 }}>You have no applications yet. Go to <b>Courses / Programs</b> to apply.<div style={{ marginTop: 10 }}><button className="btn sm" onClick={() => go('programs')}>Browse Programs</button></div></div>}
+    {rows.map(a => { const p = a.payment, isPaid = a.payment_status === 'Success';
+      return (<div key={a.id} className="card" style={{ marginTop: 14 }}>
+        {isPaid ? <div className="alert al-o">✅ <b>Payment done.</b> Your payment for application <b>{a.app_no}</b> has been received successfully.</div>
+          : <div className="alert al-i">⏳ <b>Payment pending</b> for application <b>{a.app_no}</b>.</div>}
+        <div className="kv" style={{ marginTop: 10 }}><span>Application No.</span><span>{a.app_no}</span><span>Program</span><span>{a.program_code ? 'B.Tech in ' + a.program_code : '-'}</span><span>Application Status</span><span><span className={'tag ' + a.status}>{a.status}</span></span><span>Payment Status</span><span><span className={'tag ' + a.payment_status}>{a.payment_status}</span></span>
+          {isPaid && p && <React.Fragment><span>Transaction ID</span><span>{p.txn_id}</span><span>Method</span><span>{p.method}</span><span>Amount Paid</span><span>{money(p.amount)}</span><span>Paid On</span><span>{fdate(p.paid_at)}</span></React.Fragment>}</div>
+        <div style={{ marginTop: 12 }}>{isPaid ? <button className="btn sm" onClick={() => go('confirm', a.id)}>View Confirmation</button>
+          : a.status === 'Draft' ? <button className="btn sm" onClick={() => go('payment', a.id)}>Pay Now →</button> : null}</div></div>); })}
+  </div>);
+}
 function Notifs({ refresh }) {
   const [n, setN] = useState([]); useEffect(() => { API('/notifications').then(x => { setN(x); API('/notifications/read', 'POST').then(refresh); }); }, []);
   return (<div><h1>Notifications</h1>{n.map(x => <div key={x.id} className="card" style={{ marginTop: 12 }}>🔔 {x.message}<br /><small style={{ color: 'var(--mu)' }}>{fdate(x.created_at)}</small></div>)}{!n.length && <p className="sub">No notifications.</p>}</div>);
@@ -544,14 +582,15 @@ function App() {
   if (verifyToken) return <VerifyEmail token={verifyToken} done={v => { setVerifyToken(null); setView(typeof v === 'string' ? v : 'login'); }} />;
   if (resetToken) return <ResetPassword token={resetToken} done={v => { setResetToken(null); if (user) { localStorage.removeItem('tok'); setUser(null); } setView(typeof v === 'string' ? v : 'login'); }} />;
   if (!user) return view === 'home' ? <Home go={go} /> : view === 'forgot' ? <ForgotPassword go={go} /> : view === 'register' ? <Register go={go} /> : <Login go={go} onLogin={u => { setUser(u); setView(home(u)); }} />;
-  const items = user.role === 'admin' ? [['admin', '🏠', 'Dashboard'], ['password', '🔑', 'Change Password']] : [['dashboard', '🏠', 'Dashboard'], ['programs', '🏛', 'Courses / Programs'], ['form', '📝', 'New Application'], ['myapps', '📄', 'My Applications'], ['docs', '⬆', 'Upload Documents'], ['payment', '💳', 'Payments'], ['notifs', '🔔', 'Notifications'], ['profile', '👤', 'Profile'], ['password', '🔑', 'Change Password']];
-  const click = k => { if (k === 'form') { setPreset(''); setAppId(null); go('form'); } else if (k === 'docs' || k === 'payment') openLatest(k); else go(k); };
+  const items = user.role === 'admin' ? [['admin', '🏠', 'Dashboard'], ['password', '🔑', 'Change Password']] : [['dashboard', '🏠', 'Dashboard'], ['programs', '🏛', 'Courses / Programs'], ['form', '📝', 'New Application'], ['myapps', '📄', 'My Applications'], ['docs', '⬆', 'Upload Documents'], ['payments', '💳', 'Payments'], ['notifs', '🔔', 'Notifications'], ['profile', '👤', 'Profile'], ['password', '🔑', 'Change Password']];
+  const click = k => { if (k === 'form') { setPreset(''); setAppId(null); go('form'); } else if (k === 'docs') openLatest(k); else go(k); };
   const need = (v) => appId ? null : 'Open an application first.';
   let page;
   if (view === 'dashboard') page = <Dashboard go={go} user={user} openApp={openApp} />;
   else if (view === 'programs') page = <Programs go={go} start={start} />;
   else if (view === 'form') page = <Form key={appId || 'new' + preset} go={go} appId={appId} user={user} setAppId={setAppId} preset={preset} />;
   else if (view === 'docs' && appId) page = <Docs go={go} appId={appId} />;
+  else if (view === 'payments') page = <Payments go={go} />;
   else if (view === 'payment' && appId) page = <Payment go={go} appId={appId} />;
   else if (view === 'confirm' && appId) page = <Confirm go={go} appId={appId} />;
   else if (view === 'myapps') page = <MyApps go={go} openApp={openApp} />;
