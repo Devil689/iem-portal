@@ -217,6 +217,30 @@ app.patch('/api/admin/applications/:id', admin, wrap(async (req, res) => {
   if (!a) return res.status(404).json({ error: 'Not found' });
   await notify(a.user_id, `Your application ${a.app_no} status is now: ${status}`); res.json({ ok: true });
 }));
+// ---- admin: overview, every registered student (even with no application), documents ----
+const stageOf = r => !r.app_id ? 'Registered' : r.status !== 'Draft' ? r.status : r.docs >= 4 ? 'Awaiting payment' : r.docs > 0 ? 'Uploading documents' : 'Form in progress';
+const studentRows = async () => (await q(`SELECT u.id, u.name, u.email, u.phone, u.email_verified, u.created_at, a.id AS app_id, a.app_no, a.status, a.payment_status, a.program_code, a.merit,
+    COALESCE(d.n, 0) AS docs, (SELECT COUNT(*)::int FROM applications x WHERE x.user_id = u.id) AS app_count
+  FROM users u LEFT JOIN LATERAL (SELECT * FROM applications x WHERE x.user_id = u.id ORDER BY x.id DESC LIMIT 1) a ON TRUE
+  LEFT JOIN LATERAL (SELECT COUNT(*)::int AS n FROM documents WHERE application_id = a.id AND doc_type IN ('tenth','twelfth','photo_id','photograph')) d ON TRUE
+  WHERE u.role = 'applicant' ORDER BY u.created_at DESC, u.id DESC`)).rows.map(r => ({ ...r, stage: stageOf(r) }));
+app.get('/api/admin/students', admin, wrap(async (req, res) => res.json(await studentRows())));
+app.get('/api/admin/overview', admin, wrap(async (req, res) => {
+  const st = await studentRows(), n = f => st.filter(f).length, by = {};
+  for (const r of st) by[r.stage] = (by[r.stage] || 0) + 1;
+  const programs = (await q(`SELECT p.code, p.name, p.intake,
+      COUNT(a.id) FILTER (WHERE a.status <> 'Draft')::int AS submitted, COUNT(a.id) FILTER (WHERE a.status = 'Admitted')::int AS admitted,
+      COUNT(a.id) FILTER (WHERE a.status = 'Waitlisted')::int AS waitlisted, COUNT(a.id) FILTER (WHERE a.status = 'Rejected')::int AS rejected,
+      COUNT(a.id) FILTER (WHERE a.status = 'Draft')::int AS drafts
+    FROM programs p LEFT JOIN applications a ON a.program_code = p.code GROUP BY p.code, p.name, p.intake ORDER BY p.code`)).rows;
+  const apps = (await q(`SELECT COUNT(*) FILTER (WHERE status <> 'Draft')::int AS submitted, COUNT(*) FILTER (WHERE payment_status = 'Success')::int AS paid, COUNT(*)::int AS total FROM applications`)).rows[0];
+  res.json({ registered: st.length, verified: n(r => r.email_verified), unverified: n(r => !r.email_verified), notApplied: by.Registered || 0, stages: by, apps, programs });
+}));
+app.get('/api/admin/applications/:id/documents/:type', admin, wrap(async (req, res) => {
+  if (!/^\d+$/.test(req.params.id)) return res.status(404).json({ error: 'Not found' });
+  const d = (await q('SELECT filename,mime,data FROM documents WHERE application_id=$1 AND doc_type=$2', [req.params.id, req.params.type])).rows[0];
+  d ? res.json(d) : res.status(404).json({ error: 'Document not found' });
+}));
 app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
 
 (async () => {
