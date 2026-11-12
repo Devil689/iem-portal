@@ -11,6 +11,7 @@ button{font:inherit;cursor:pointer}h1,h2,h3{color:var(--navy);margin:0}
 .hdr{background:#fff;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:14px;padding:10px 20px;flex-wrap:wrap}
 .logo{height:54px;width:auto;flex:none}
 .brand{flex:1;min-width:200px}.brand b{display:block;font-size:20px;color:var(--navy);letter-spacing:.3px}.brand span{color:var(--mu);font-size:13px}
+textarea{font:inherit;padding:9px 10px;border:1px solid var(--bd);border-radius:8px;box-sizing:border-box}
 .pm{position:relative}.pm>a{display:inline-block;padding:6px 10px;border-radius:8px;user-select:none}.pm>a:hover,.pm>a.open{background:#eef1fa}.pm .dd{position:absolute;right:0;top:calc(100% + 6px);min-width:210px;background:#fff;border:1px solid var(--bd);border-radius:10px;box-shadow:0 8px 24px rgba(10,30,90,.15);padding:6px;z-index:50}.pm .dd .who{padding:8px 10px;border-bottom:1px solid var(--bd);margin-bottom:4px;font-size:13px;color:#555}.pm .dd .who b{display:block;color:#1b2030;font-size:14px}.pm .dd a{display:block;padding:8px 10px;border-radius:6px;white-space:nowrap}.pm .dd a:hover{background:#eef1fa}.pm .dd a.out{color:#b3261e;border-top:1px solid var(--bd);margin-top:4px;border-radius:0 0 6px 6px}.pm .car{display:inline-block;transition:transform .15s}.pm>a.open .car{transform:rotate(180deg)}
 .nav{display:flex;gap:18px;align-items:center}.nav a{color:#1b2030;cursor:pointer;position:relative}
 .badge{background:#d62839;color:#fff;border-radius:99px;font-size:10px;padding:0 5px;position:absolute;top:-8px;right:-12px}
@@ -549,7 +550,52 @@ function ChangePassword() {
       <button className="btn" style={{ marginTop: 16 }} disabled={busy} onClick={submit}>🔑 Update Password</button>
     </div></div>);
 }
-function Profile({ user }) { return (<div><h1>Profile</h1><div className="card" style={{ marginTop: 14 }}><div className="kv"><span>Name</span><span>{user.name}</span><span>Email</span><span>{user.email}</span><span>Phone</span><span>{user.phone || '-'}</span><span>Role</span><span>{user.role}</span></div></div></div>); }
+function Profile({ user, setUser, go }) {
+  const [p, setP] = useState(null), [f, setF] = useState(null), [edit, setEdit] = useState(false), [err, setErr] = useState(''), [ok, setOk] = useState(''), [busy, setBusy] = useState(false), [stats, setStats] = useState(null);
+  const admin = user.role === 'admin';
+  useEffect(() => { API('/profile').then(setP).catch(e => setErr(e.message));
+    (admin ? API('/admin/applications') : API('/applications/mine')).then(a => setStats({ total: a.length, paid: a.filter(x => x.payment_status === 'Success').length, admitted: a.filter(x => x.status === 'Admitted').length })).catch(() => {}); }, []);
+  if (!p) return err ? <div className="alert al-e">{err}</div> : <div className="center">Loading…</div>;
+  const V = x => x || <span style={{ color: '#999' }}>Not added</span>;
+  const FIELDS = admin ? ['name', 'phone', 'dob', 'gender', 'address', 'city', 'state', 'pincode', 'designation', 'department', 'about'] : ['name', 'phone', 'dob', 'gender', 'address', 'city', 'state', 'pincode', 'guardian_name', 'guardian_phone', 'about'];
+  const pct = Math.round(FIELDS.filter(k => (p[k] || '').toString().trim()).length / FIELDS.length * 100);
+  const start = () => { setF(Object.fromEntries(FIELDS.map(k => [k, p[k] || '']))); setErr(''); setOk(''); setEdit(true); };
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  const save = async () => { setErr(''); setBusy(true); try { const n = await API('/profile', 'PUT', f); setP(n); setUser({ ...user, name: n.name, phone: n.phone }); setEdit(false); setOk('Your profile has been updated.'); } catch (e) { setErr(e.message); } setBusy(false); };
+  const inp = (k, l, t = 'text', ph = '') => <div key={k}><label>{l}</label><input type={t} value={f[k]} onChange={set(k)} placeholder={ph} max={t === 'date' ? new Date().toISOString().slice(0, 10) : undefined} /></div>;
+  const since = p.created_at ? new Date(p.created_at.replace(' ', 'T') + (p.created_at.includes('Z') ? '' : 'Z')).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+  const dobTxt = p.dob ? new Date(p.dob + 'T00:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }) : '';
+  const initials = p.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+  return (<div><h1>My Profile</h1><p className="sub">{admin ? 'Your administrator account details.' : 'Keep your details up to date. They are used for your admission communication.'}</p>
+    {ok && <div className="alert al-o">✓ {ok}</div>}
+    <div className="card" style={{ marginTop: 14, display: 'flex', gap: 18, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'var(--blue)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 26, fontWeight: 700 }}>{initials}</div>
+      <div style={{ flex: 1, minWidth: 200 }}><h2 style={{ margin: 0 }}>{p.name}</h2><div style={{ color: '#666' }}>{admin ? (p.designation || 'Administrator') + (p.department ? ' · ' + p.department : '') : 'Applicant'} · Member since {since}</div>
+        <div style={{ marginTop: 8, fontSize: 13 }}>Profile completeness: <b>{pct}%</b></div><div style={{ height: 8, background: '#e6eaf5', borderRadius: 99, marginTop: 4, maxWidth: 320 }}><div style={{ width: pct + '%', height: '100%', background: pct === 100 ? '#1f9d55' : 'var(--blue)', borderRadius: 99 }} /></div></div>
+      {!edit && <button className="btn" onClick={start}>✏️ Edit Profile</button>}
+    </div>
+    {stats && <div className="grid g2" style={{ marginTop: 14 }}><div className="card"><div style={{ color: '#666', fontSize: 13 }}>{admin ? 'Total applications received' : 'My applications'}</div><div style={{ fontSize: 26, fontWeight: 700 }}>{stats.total}</div></div>
+      <div className="card"><div style={{ color: '#666', fontSize: 13 }}>{admin ? 'Payments received · Admitted' : 'Payments done · Admitted'}</div><div style={{ fontSize: 26, fontWeight: 700 }}>{stats.paid} · {stats.admitted}</div></div></div>}
+    {edit ? <div className="card" style={{ marginTop: 14 }}><h3>Edit Profile</h3>
+      <div className="grid g2">{inp('name', 'Full Name')}
+        <div><label>Email</label><input value={p.email} disabled /><small style={{ color: '#888' }}>Email cannot be changed here.</small></div>
+        {inp('phone', 'Phone Number (10 digits)', 'tel')}{inp('dob', 'Date of Birth', 'date')}
+        <div><label>Gender</label><select value={f.gender} onChange={set('gender')}><option value="">Select</option><option>Male</option><option>Female</option><option>Other</option></select></div>
+        {inp('city', 'City')}{inp('state', 'State')}{inp('pincode', 'PIN Code (6 digits)')}
+        {admin ? <React.Fragment>{inp('designation', 'Designation', 'text', 'e.g. Admission Officer')}{inp('department', 'Department', 'text', 'e.g. Admission Cell')}</React.Fragment>
+          : <React.Fragment>{inp('guardian_name', "Parent / Guardian Name")}{inp('guardian_phone', "Parent / Guardian Phone", 'tel')}</React.Fragment>}</div>
+      <div style={{ marginTop: 10 }}><label>Address</label><textarea rows="2" value={f.address} onChange={set('address')} style={{ width: '100%' }} /></div>
+      <div style={{ marginTop: 10 }}><label>{admin ? 'About / Responsibilities' : 'About me'} (max 500 characters)</label><textarea rows="3" maxLength="500" value={f.about} onChange={set('about')} style={{ width: '100%' }} /></div>
+      {err && <div className="alert al-e">{err}</div>}
+      <div className="row"><button className="btn o" onClick={() => setEdit(false)}>Cancel</button><button className="btn" disabled={busy} onClick={save}>{busy ? 'Saving…' : '💾 Save Changes'}</button></div></div>
+    : <div>
+      <div className="card" style={{ marginTop: 14 }}><h3>Account</h3><div className="kv"><span>Full Name</span><span>{p.name}</span><span>Email</span><span>{p.email}</span><span>Phone</span><span>{V(p.phone)}</span><span>Role</span><span style={{ textTransform: 'capitalize' }}>{p.role}</span><span>Member Since</span><span>{since}</span></div></div>
+      <div className="card" style={{ marginTop: 14 }}><h3>Personal Details</h3><div className="kv"><span>Date of Birth</span><span>{V(dobTxt)}</span><span>Gender</span><span>{V(p.gender)}</span>{admin ? <React.Fragment><span>Designation</span><span>{V(p.designation)}</span><span>Department</span><span>{V(p.department)}</span></React.Fragment> : <React.Fragment><span>Parent / Guardian</span><span>{V(p.guardian_name)}</span><span>Guardian Phone</span><span>{V(p.guardian_phone)}</span></React.Fragment>}</div></div>
+      <div className="card" style={{ marginTop: 14 }}><h3>Address</h3><div className="kv"><span>Address</span><span>{V(p.address)}</span><span>City</span><span>{V(p.city)}</span><span>State</span><span>{V(p.state)}</span><span>PIN Code</span><span>{V(p.pincode)}</span></div></div>
+      <div className="card" style={{ marginTop: 14 }}><h3>{admin ? 'About / Responsibilities' : 'About me'}</h3><p style={{ margin: 0 }}>{V(p.about)}</p></div>
+      <div className="card" style={{ marginTop: 14 }}><h3>Security</h3><p style={{ margin: '0 0 10px' }}>Keep your account safe by using a strong password.</p><button className="btn o sm" onClick={() => go('password')}>🔑 Change Password</button></div></div>}
+  </div>);
+}
 
 function Admin() {
   const [rows, setRows] = useState([]), [err, setErr] = useState('');
@@ -595,7 +641,7 @@ function App() {
   else if (view === 'confirm' && appId) page = <Confirm go={go} appId={appId} />;
   else if (view === 'myapps') page = <MyApps go={go} openApp={openApp} />;
   else if (view === 'notifs') page = <Notifs refresh={refresh} />;
-  else if (view === 'profile') page = <Profile user={user} />;
+  else if (view === 'profile') page = <Profile user={user} setUser={setUser} go={go} />;
   else if (view === 'password') page = <ChangePassword />;
   else if (view === 'admin') page = <Admin />;
   else page = <div className="center">Nothing here yet. Use the menu.</div>;
