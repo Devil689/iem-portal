@@ -91,7 +91,7 @@ const API = async (p, m = 'GET', b) => {
   const t = localStorage.getItem('tok');
   const r = await fetch('/api' + p, { method: m, headers: { 'Content-Type': 'application/json', ...(t && { Authorization: 'Bearer ' + t }) }, body: b ? JSON.stringify(b) : undefined });
   const d = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(d.error || 'Request failed');
+  if (!r.ok) { const er = new Error(d.error || 'Request failed'); er.code = d.code; throw er; }
   return d;
 };
 const money = n => '₹ ' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 });
@@ -107,14 +107,15 @@ const Header = ({ user, go, unread, logout }) => (
 const Footer = () => <div className="ftr"><span>© 2026 Institute of Engineering &amp; Management, Kolkata. All rights reserved.</span><span>Privacy Policy | Terms &amp; Conditions | Disclaimer</span></div>;
 
 function Login({ go, onLogin }) {
-  const [role, setRole] = useState('applicant'), [email, setEmail] = useState(''), [pw, setPw] = useState(''), [show, setShow] = useState(false), [err, setErr] = useState('');
-  const submit = async () => { try { const r = await API('/login', 'POST', { email, password: pw, role }); localStorage.setItem('tok', r.token); onLogin(r.user); } catch (e) { setErr(e.message); } };
+  const [role, setRole] = useState('applicant'), [email, setEmail] = useState(''), [pw, setPw] = useState(''), [show, setShow] = useState(false), [err, setErr] = useState(''), [unv, setUnv] = useState(false), [info, setInfo] = useState('');
+  const submit = async () => { setInfo(''); setUnv(false); try { const r = await API('/login', 'POST', { email, password: pw, role }); localStorage.setItem('tok', r.token); onLogin(r.user); } catch (e) { setErr(e.message); setUnv(e.code === 'unverified'); } };
+  const resend = async () => { try { await API('/resend-verification', 'POST', { email }); setErr(''); setUnv(false); setInfo('A new verification link has been sent. Check your inbox (and spam folder).'); } catch (e) { setErr(e.message); } };
   return (<div><Header go={go} /><div className="auth"><div className="l"><img src="/logo.png" alt="Institute of Engineering & Management logo" /><hr style={{ width: '50%' }} /><i>Empowering Minds,<br />Shaping Futures</i></div>
     <div className="r"><h2>IEM Admission Portal - Login</h2><p className="sub">Sign in to continue to your account</p>
       <label>Email / Username</label><input value={email} onChange={e => setEmail(e.target.value)} placeholder="Enter email or username" />
       <label style={{ marginTop: 12 }}>Password</label><div style={{ position: 'relative' }}><input type={show ? 'text' : 'password'} value={pw} onChange={e => setPw(e.target.value)} onKeyDown={e => e.key === 'Enter' && submit()} placeholder="Enter your password" /><a style={{ position: 'absolute', right: 10, top: 9, cursor: 'pointer' }} onClick={() => setShow(!show)}>👁</a></div>
       {role === 'applicant' && <p style={{ textAlign: 'right', margin: '8px 0 0' }}><a style={{ cursor: 'pointer', color: 'var(--blue)', fontSize: 13 }} onClick={() => go('forgot')}>Forgot password?</a></p>}
-      {err && <div className="alert al-e">{err}</div>}
+      {err && <div className="alert al-e">{err}{unv && <div style={{ marginTop: 6 }}><a style={{ cursor: 'pointer', color: 'var(--blue)', fontWeight: 600 }} onClick={resend}>Resend verification email</a></div>}</div>}{info && <div className="alert al-o">{info}</div>}
       <button className="btn" style={{ width: '100%', marginTop: 16 }} onClick={submit}>Login as {role === 'admin' ? 'Admin' : 'Applicant'}</button>
       <p style={{ textAlign: 'center', color: '#888' }}>OR</p>
       <button className="btn o" style={{ width: '100%' }} onClick={() => go('register')}>Go to Registration</button>
@@ -305,20 +306,35 @@ function ResetPassword({ token, done }) {
         <p style={{ textAlign: 'center', color: '#888' }}>OR</p><button className="btn o" style={{ width: '100%' }} onClick={() => done('login')}>← Back to Login</button></div>}
     </div></div><Footer /></div>);
 }
+function VerifyEmail({ token, done }) {
+  const [st, setSt] = useState('wait'), [msg, setMsg] = useState('');
+  useEffect(() => { API('/verify-email', 'POST', { token }).then(() => setSt('ok')).catch(e => { setMsg(e.message); setSt('bad'); }); }, []);
+  return (<div><Header go={done} /><div className="auth"><div className="l"><img src="/logo.png" alt="Institute of Engineering & Management logo" /><hr style={{ width: '50%' }} /><i>Empowering Minds,<br />Shaping Futures</i></div>
+    <div className="r"><h2>Email Verification</h2>
+      {st === 'wait' && <p className="sub">Verifying your email…</p>}
+      {st === 'ok' && <div><div className="alert al-o">✓ Your email is verified. Your account is now active.</div><button className="btn" style={{ width: '100%', marginTop: 16 }} onClick={() => done('login')}>Go to Login</button></div>}
+      {st === 'bad' && <div><div className="alert al-e">{msg}</div><button className="btn" style={{ width: '100%', marginTop: 16 }} onClick={() => done('login')}>Go to Login</button></div>}
+    </div></div><Footer /></div>);
+}
 function Register({ go }) {
-  const [f, setF] = useState({ name: '', email: '', phone: '', password: '', confirm: '' }), [err, setErr] = useState(''), [ok, setOk] = useState(false);
+  const [f, setF] = useState({ name: '', email: '', phone: '', password: '', confirm: '' }), [err, setErr] = useState(''), [ok, setOk] = useState(null), [note, setNote] = useState('');
+  const resend = async () => { try { await API('/resend-verification', 'POST', { email: f.email }); setErr(''); setNote('A new link has been sent.'); } catch (e) { setNote(''); setErr(e.message); } };
   const set = k => e => setF({ ...f, [k]: e.target.value });
   const submit = async () => {
     if (f.password !== f.confirm) return setErr('Passwords do not match');
-    try { await API('/register', 'POST', f); setOk(true); setErr(''); } catch (e) { setErr(e.message); }
+    try { const r = await API('/register', 'POST', f); setOk(r); setErr(''); } catch (e) { setErr(e.message); }
   };
   return (<div><Header go={go} /><div className="auth"><div className="l"><img src="/logo.png" alt="Institute of Engineering & Management logo" /><hr style={{ width: '50%' }} /><i>Empowering Minds,<br />Shaping Futures</i></div>
     <div className="r"><h2>IEM Admission Portal - Register</h2><p className="sub">Create a new applicant account</p>
+      {ok ? <div><div className="alert al-o">{ok.needsVerification ? <span><b>Check your inbox.</b> We sent a verification link to <b>{f.email}</b>. Click it to activate your account (valid for 24 hours). Look in the spam folder if you cannot see it.{ok.emailSent === false && <span> We could not send the email just now, so please press Resend below.</span>}</span> : 'Registered! You can now login.'}</div>
+        {note && <div className="alert al-o">{note}</div>}{err && <div className="alert al-e">{err}</div>}
+        {ok.needsVerification && <p style={{ textAlign: 'center' }}>Did not get it? <a style={{ cursor: 'pointer', color: 'var(--blue)', fontWeight: 600 }} onClick={resend}>Resend email</a></p>}
+        <button className="btn" style={{ width: '100%', marginTop: 8 }} onClick={() => go('login')}>Go to Login</button></div> : <div>
       {[['name', 'Full Name', 'text'], ['email', 'Email Address', 'email'], ['phone', 'Phone Number', 'tel'], ['password', 'Password', 'password'], ['confirm', 'Confirm Password', 'password']].map(([k, l, t]) =>
         <div key={k} style={{ marginBottom: 10 }}><label>{l}</label><input type={t} value={f[k]} onChange={set(k)} placeholder={'Enter your ' + l.toLowerCase()} /></div>)}
-      {err && <div className="alert al-e">{err}</div>}{ok && <div className="alert al-o">Registered! You can now login.</div>}
+      {err && <div className="alert al-e">{err}</div>}
       <button className="btn" style={{ width: '100%' }} onClick={submit}>Register</button>
-      <p style={{ textAlign: 'center', color: '#888' }}>OR</p><button className="btn o" style={{ width: '100%' }} onClick={() => go('login')}>← Back to Login</button>
+      <p style={{ textAlign: 'center', color: '#888' }}>OR</p><button className="btn o" style={{ width: '100%' }} onClick={() => go('login')}>← Back to Login</button></div>}
     </div></div><Footer /></div>);
 }
 
@@ -514,7 +530,7 @@ function Admin() {
 }
 
 function App() {
-  const [user, setUser] = useState(null), [ready, setReady] = useState(false), [view, setView] = useState('home'), [resetToken, setResetToken] = useState(() => { const m = /^#reset=([a-f0-9]+)$/.exec(window.location.hash); if (m) history.replaceState(null, '', window.location.pathname); return m ? m[1] : null; }), [appId, setAppId] = useState(null), [preset, setPreset] = useState(''), [unread, setUnread] = useState(0);
+  const [user, setUser] = useState(null), [ready, setReady] = useState(false), [view, setView] = useState('home'), [resetToken, setResetToken] = useState(() => { const m = /^#reset=([a-f0-9]+)$/.exec(window.location.hash); if (m) history.replaceState(null, '', window.location.pathname); return m ? m[1] : null; }), [verifyToken, setVerifyToken] = useState(() => { const m = /^#verify=([a-f0-9]+)$/.exec(window.location.hash); if (m) history.replaceState(null, '', window.location.pathname); return m ? m[1] : null; }), [appId, setAppId] = useState(null), [preset, setPreset] = useState(''), [unread, setUnread] = useState(0);
   const home = u => (u.role === 'admin' ? 'admin' : 'dashboard');
   useEffect(() => { if (!localStorage.getItem('tok')) return setReady(true); API('/me').then(u => { setUser(u); setView(home(u)); }).catch(() => localStorage.removeItem('tok')).finally(() => setReady(true)); }, []);
   const refresh = () => API('/notifications').then(n => setUnread(n.filter(x => !x.is_read).length)).catch(() => {});
@@ -525,6 +541,7 @@ function App() {
   const openApp = (v, id) => go(v, id);
   const openLatest = async v => { const a = (await API('/applications/mine')).find(x => x.status === 'Draft'); a ? go(v, a.id) : go('programs'); };
   if (!ready) return <div className="center">Loading…</div>;
+  if (verifyToken) return <VerifyEmail token={verifyToken} done={v => { setVerifyToken(null); setView(typeof v === 'string' ? v : 'login'); }} />;
   if (resetToken) return <ResetPassword token={resetToken} done={v => { setResetToken(null); if (user) { localStorage.removeItem('tok'); setUser(null); } setView(typeof v === 'string' ? v : 'login'); }} />;
   if (!user) return view === 'home' ? <Home go={go} /> : view === 'forgot' ? <ForgotPassword go={go} /> : view === 'register' ? <Register go={go} /> : <Login go={go} onLogin={u => { setUser(u); setView(home(u)); }} />;
   const items = user.role === 'admin' ? [['admin', '🏠', 'Dashboard'], ['password', '🔑', 'Change Password']] : [['dashboard', '🏠', 'Dashboard'], ['programs', '🏛', 'Courses / Programs'], ['form', '📝', 'New Application'], ['myapps', '📄', 'My Applications'], ['docs', '⬆', 'Upload Documents'], ['payment', '💳', 'Payments'], ['notifs', '🔔', 'Notifications'], ['profile', '👤', 'Profile'], ['password', '🔑', 'Change Password']];
