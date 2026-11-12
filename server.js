@@ -29,26 +29,59 @@ app.use(express.static(path.join(__dirname, 'public')));
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(e => { console.error(e); res.status(500).json({ error: 'Server error' }); });
 
 app.get('/api/programs', wrap(async (req, res) => res.json((await q('SELECT * FROM programs ORDER BY code')).rows)));
+// ---- email verification (needs the Brevo settings below; without them new users are auto-verified so nobody gets locked out) ----
+const sha = v => crypto.createHash('sha256').update(String(v)).digest('hex');
+const mailReady = () => !!(process.env.BREVO_API_KEY && process.env.MAIL_FROM);
+const appBase = req => (process.env.APP_URL || (req.protocol + '://' + req.get('host'))).replace(/\/$/, '');
+async function issueVerification(u, req) {
+  const token = crypto.randomBytes(32).toString('hex');
+  await q("INSERT INTO email_verifications(user_id,token_hash,expires_at,created_at) VALUES ($1,$2,NOW() + INTERVAL '24 hours',NOW()) ON CONFLICT (user_id) DO UPDATE SET token_hash=EXCLUDED.token_hash, expires_at=EXCLUDED.expires_at, created_at=NOW()", [u.id, sha(token)]);
+  const link = appBase(req) + '/#verify=' + token;
+  try {
+    return await sendMail(u.email, 'Verify your email - IEM Admission Portal',
+      '<p>Hello ' + u.name.replace(/[<>&]/g, '') + ',</p><p>Thank you for registering. Please confirm your email address to activate your account. The link is valid for 24 hours.</p><p><a href="' + link + '">Verify my email</a></p><p>If you did not register, ignore this email.</p>',
+      'Hello ' + u.name + ', open this link to verify your email (valid 24 hours): ' + link);
+  } catch (err) { console.error(err.message); return false; }
+}
 app.post('/api/register', wrap(async (req, res) => {
   const { name, email, phone, password } = req.body;
   if (!name?.trim() || !/\S+@\S+\.\S+/.test(email || '') || !/^\d{10}$/.test(phone || '') || (password || '').length < 6)
     return res.status(400).json({ error: 'Enter a valid name, email, 10-digit phone and a password of 6+ characters' });
   const e = email.trim().toLowerCase();
   if ((await q('SELECT 1 FROM users WHERE email=$1', [e])).rowCount) return res.status(409).json({ error: 'Email already registered' });
-  await q('INSERT INTO users(name,email,phone,password) VALUES ($1,$2,$3,$4)', [name.trim(), e, phone, hash(password)]);
-  res.status(201).json({ ok: true });
+  const needs = mailReady();
+  const u = (await q('INSERT INTO users(name,email,phone,password,email_verified) VALUES ($1,$2,$3,$4,$5) RETURNING id,name,email', [name.trim(), e, phone, hash(password), !needs])).rows[0];
+  if (!needs) { console.log('[email verification skipped: BREVO_API_KEY / MAIL_FROM not set]', e); return res.status(201).json({ ok: true, needsVerification: false }); }
+  const sent = await issueVerification(u, req);
+  res.status(201).json({ ok: true, needsVerification: true, emailSent: sent });
 }));
 app.post('/api/login', wrap(async (req, res) => {
   const { email, password, role } = req.body;
   const u = (await q('SELECT * FROM users WHERE email=$1', [(email || '').trim().toLowerCase()])).rows[0];
   if (!u || !check(password || '', u.password) || u.role !== (role || 'applicant')) return res.status(401).json({ error: 'Invalid credentials for ' + (role || 'applicant') + ' login' });
+  if (u.email_verified === false) return res.status(403).json({ code: 'unverified', error: 'Please verify your email first. We sent a link to ' + u.email + '.' });
   const token = crypto.randomUUID(); sessions.set(token, u.id);
   res.json({ token, user: { id: u.id, name: u.name, email: u.email, phone: u.phone, role: u.role } });
 }));
+app.post('/api/verify-email', wrap(async (req, res) => {
+  const r = (await q('SELECT user_id FROM email_verifications WHERE token_hash=$1 AND expires_at>NOW()', [sha((req.body || {}).token || '')])).rows[0];
+  if (!r) return res.status(400).json({ error: 'This verification link is invalid or has expired. Request a new one from the login page.' });
+  await q('UPDATE users SET email_verified=TRUE WHERE id=$1', [r.user_id]);
+  await q('DELETE FROM email_verifications WHERE user_id=$1', [r.user_id]);
+  res.json({ ok: true });
+}));
+app.post('/api/resend-verification', wrap(async (req, res) => {
+  const e = (((req.body || {}).email) || '').trim().toLowerCase();
+  const generic = { ok: true, message: 'If that account is waiting for verification, a new link has been sent.' };
+  const u = e && (await q("SELECT u.id,u.name,u.email,(SELECT created_at FROM email_verifications v WHERE v.user_id=u.id) AS last_sent, (SELECT created_at > NOW() - INTERVAL '60 seconds' FROM email_verifications v WHERE v.user_id=u.id) AS too_soon FROM users u WHERE u.email=$1 AND u.email_verified=FALSE", [e])).rows[0];
+  if (!u) return res.json(generic);
+  if (u.too_soon) return res.status(429).json({ error: 'Please wait a minute before requesting another email.' });
+  await issueVerification(u, req);
+  res.json(generic);
+}));
 
-// ---- forgot / reset password (email link, sent through Brevo's web API) ----
+// ---- forgot / reset password + shared mail sender (Brevo's web API) ----
 // Needs BREVO_API_KEY + MAIL_FROM (a sender verified in Brevo) + APP_URL. Without them the link is only printed in the server log.
-const sha = v => crypto.createHash('sha256').update(String(v)).digest('hex');
 async function sendMail(to, subject, html, text) {
   if (!process.env.BREVO_API_KEY || !process.env.MAIL_FROM) { console.log('[email not configured] to:', to, '|', subject, '|', text); return false; }
   const r = await fetch('https://api.brevo.com/v3/smtp/email', { method: 'POST',
