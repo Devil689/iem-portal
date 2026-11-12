@@ -632,8 +632,8 @@ function AdminDetail({ row, onBack, reload }) {
 
 function Admin() {
   const [tab, setTab] = useState('overview'), [ov, setOv] = useState(null), [stu, setStu] = useState([]), [apps, setApps] = useState([]), [err, setErr] = useState(''), [sel, setSel] = useState(null), [ok, setOk] = useState('');
-  const [q, setQ] = useState(''), [stage, setStage] = useState(''), [ver, setVer] = useState(''), [fs, setFs] = useState(''), [fp, setFp] = useState(''), [fpay, setFpay] = useState('');
-  const load = () => { API('/admin/overview').then(setOv).catch(e => setErr(e.message)); API('/admin/students').then(setStu).catch(() => {}); API('/admin/applications').then(setApps).catch(() => {}); };
+  const [pays, setPays] = useState([]), [q, setQ] = useState(''), [stage, setStage] = useState(''), [ver, setVer] = useState(''), [fs, setFs] = useState(''), [fp, setFp] = useState(''), [fpay, setFpay] = useState('');
+  const load = () => { API('/admin/overview').then(setOv).catch(e => setErr(e.message)); API('/admin/students').then(setStu).catch(() => {}); API('/admin/applications').then(setApps).catch(() => {}); API('/admin/payments').then(setPays).catch(() => {}); };
   useEffect(() => { load(); }, []);
   const run = async () => { await API('/admin/allocate', 'POST'); setOk('Merit allocation completed and students were notified.'); load(); };
   const setStatus = async (id, status) => { await API('/admin/applications/' + id, 'PATCH', { status }); load(); };
@@ -642,9 +642,10 @@ function Admin() {
   const ql = q.trim().toLowerCase();
   const fStu = stu.filter(r => (!stage || r.stage === stage) && (!ver || (ver === 'yes') === !!r.email_verified) && (!ql || [r.name, r.email, r.phone, r.app_no].some(v => (v || '').toLowerCase().includes(ql))));
   const fApps = apps.filter(r => (!fs || r.status === fs) && (!fp || r.program_code === fp) && (!fpay || r.payment_status === fpay) && (!ql || [r.full_name, r.email, r.app_no].some(v => (v || '').toLowerCase().includes(ql))));
+  const fPays = pays.filter(r => !ql || [r.full_name, r.app_no, r.txn_id, r.email].some(v => (v || '').toLowerCase().includes(ql)));
   const S = k => (ov && ov.stages[k]) || 0;
   const Card = ({ n, l, sub, onClick, tone }) => <div className="card" style={{ cursor: onClick ? 'pointer' : 'default', borderLeft: '4px solid ' + (tone || 'var(--blue)') }} onClick={onClick}><div style={{ fontSize: 28, fontWeight: 700 }}>{n}</div><div style={{ fontWeight: 600 }}>{l}</div>{sub && <div style={{ color: '#777', fontSize: 12, marginTop: 2 }}>{sub}</div>}</div>;
-  const tabs = [['overview', '📊 Overview'], ['students', '👥 All Students (' + stu.length + ')'], ['apps', '📄 Applications (' + apps.length + ')']];
+  const tabs = [['overview', '📊 Overview'], ['students', '👥 All Students (' + stu.length + ')'], ['apps', '📄 Applications (' + apps.length + ')'], ['pay', '💳 Payments (' + pays.length + ')']];
   const toolbar = children => <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '14px 0', alignItems: 'end' }}>{children}</div>;
   return (<div><h1>Admin Dashboard</h1><p className="sub">See every registered student, how far they have got, and manage admissions.</p>
     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--bd)', paddingBottom: 10 }}>{tabs.map(([k, l]) => <button key={k} className={'btn sm' + (tab === k ? '' : ' o')} onClick={() => { setTab(k); setQ(''); }}>{l}</button>)}</div>
@@ -658,7 +659,7 @@ function Admin() {
         <Card n={S('Uploading documents')} l="Uploading documents" sub={STAGE_HELP['Uploading documents']} tone="#d98a00" onClick={() => jump('Uploading documents')} />
         <Card n={S('Awaiting payment')} l="Awaiting payment" sub={STAGE_HELP['Awaiting payment']} tone="#d98a00" onClick={() => jump('Awaiting payment')} />
         <Card n={S('Submitted')} l="Submitted (paid)" sub={STAGE_HELP.Submitted} onClick={() => jump('Submitted')} />
-        <Card n={ov.apps.paid} l="Payments received" sub={ov.apps.total + ' applications in total'} tone="#1f9d55" /></div>
+        <Card n={ov.apps.paid} l="Payments received" sub={'Click to see all transactions · ' + ov.apps.total + ' applications in total'} tone="#1f9d55" onClick={() => { setQ(''); setTab('pay'); window.scrollTo(0, 0); }} /></div>
       <h3 style={{ marginTop: 18 }}>Admission results</h3>
       <div className="grid g3"><Card n={S('Admitted')} l="Admitted" tone="#1f9d55" onClick={() => jump('Admitted')} /><Card n={S('Waitlisted')} l="Waitlisted" tone="#d98a00" onClick={() => jump('Waitlisted')} /><Card n={S('Rejected')} l="Rejected" tone="#c0392b" onClick={() => jump('Rejected')} /></div>
       <h3 style={{ marginTop: 18 }}>Programs</h3>
@@ -674,6 +675,14 @@ function Admin() {
       <div className="card tw"><div style={{ padding: '8px 4px', color: '#666', fontSize: 13 }}>Showing {fStu.length} of {stu.length} students</div><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Registered</th><th>Stage</th><th>Program</th><th>Payment</th><th></th></tr></thead><tbody>
         {fStu.map(r => <tr key={r.id}><td>{r.name}</td><td>{r.email} {!r.email_verified && <span className="tag Pending" title="Email not verified yet">unverified</span>}</td><td>{r.phone || '-'}</td><td>{dt(r.created_at)}</td><td><StageTag s={r.stage} /></td><td>{r.program_code || '-'}</td><td>{r.app_id ? <span className={'tag ' + r.payment_status}>{r.payment_status}</span> : '-'}</td><td><button className="btn sm" onClick={() => setSel(r)}>View details</button></td></tr>)}
         {!fStu.length && <tr><td colSpan="8">No students match.</td></tr>}</tbody></table></div></div>}
+    {tab === 'pay' && <div>
+      {toolbar(<React.Fragment><div><label>Search</label><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, application no. or transaction ID" /></div>
+        <button className="btn o sm" onClick={() => setQ('')}>Clear</button>
+        <button className="btn sm" onClick={() => csv('payments.csv', ['Transaction ID', 'Application no', 'Name', 'Email', 'Program', 'Method', 'Amount', 'Status', 'Paid on'], fPays.map(r => [r.txn_id, r.app_no, r.full_name, r.email, r.program_code, r.method, r.amount, r.status, dt(r.paid_at)]))}>⬇ Export CSV</button></React.Fragment>)}
+      <div className="grid g3"><Card n={fPays.length} l="Payments received" tone="#1f9d55" /><Card n={money(fPays.reduce((t, r) => t + Number(r.amount || 0), 0))} l="Total amount collected" tone="#1f9d55" /></div>
+      <div className="card tw" style={{ marginTop: 14 }}><table><thead><tr><th>Transaction ID</th><th>Application No.</th><th>Student</th><th>Program</th><th>Method</th><th>Amount</th><th>Paid On</th><th></th></tr></thead><tbody>
+        {fPays.map(r => <tr key={r.id}><td>{r.txn_id}</td><td>{r.app_no}</td><td>{r.full_name}<div style={{ color: '#777', fontSize: 12 }}>{r.email}</div></td><td>{r.program_code}</td><td>{r.method}</td><td><b>{money(r.amount)}</b></td><td>{fdate(r.paid_at)}</td><td><button className="btn sm" onClick={() => setSel(stu.find(x => x.app_id === r.app_id) || { id: r.app_id, name: r.full_name, email: r.email, app_id: r.app_id, status: 'Submitted', payment_status: 'Success', email_verified: true })}>View</button></td></tr>)}
+        {!fPays.length && <tr><td colSpan="8">No payments received yet.</td></tr>}</tbody></table></div></div>}
     {tab === 'apps' && <div>
       {toolbar(<React.Fragment><div><label>Search</label><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, email or application no." /></div>
         <div><label>Status</label><select value={fs} onChange={e => setFs(e.target.value)}><option value="">All</option>{['Submitted', 'Admitted', 'Waitlisted', 'Rejected'].map(s => <option key={s}>{s}</option>)}</select></div>
@@ -705,7 +714,7 @@ function App() {
   if (verifyToken) return <VerifyEmail token={verifyToken} done={v => { setVerifyToken(null); setView(typeof v === 'string' ? v : 'login'); }} />;
   if (resetToken) return <ResetPassword token={resetToken} done={v => { setResetToken(null); if (user) { localStorage.removeItem('tok'); setUser(null); } setView(typeof v === 'string' ? v : 'login'); }} />;
   if (!user) return view === 'home' ? <Home go={go} /> : view === 'forgot' ? <ForgotPassword go={go} /> : view === 'register' ? <Register go={go} /> : <Login go={go} onLogin={u => { setUser(u); setView(home(u)); }} />;
-  const items = user.role === 'admin' ? [['admin', '🏠', 'Dashboard'], ['password', '🔑', 'Change Password']] : [['dashboard', '🏠', 'Dashboard'], ['programs', '🏛', 'Courses / Programs'], ['form', '📝', 'New Application'], ['myapps', '📄', 'My Applications'], ['docs', '⬆', 'Upload Documents'], ['payments', '💳', 'Payments'], ['notifs', '🔔', 'Notifications'], ['profile', '👤', 'Profile'], ['password', '🔑', 'Change Password']];
+  const items = user.role === 'admin' ? [['admin', '🏠', 'Dashboard'], ['profile', '👤', 'My Profile'], ['password', '🔑', 'Change Password']] : [['dashboard', '🏠', 'Dashboard'], ['programs', '🏛', 'Courses / Programs'], ['form', '📝', 'New Application'], ['myapps', '📄', 'My Applications'], ['docs', '⬆', 'Upload Documents'], ['payments', '💳', 'Payments'], ['notifs', '🔔', 'Notifications'], ['profile', '👤', 'Profile'], ['password', '🔑', 'Change Password']];
   const click = k => { if (k === 'form') { setPreset(''); setAppId(null); go('form'); } else if (k === 'docs') openLatest(k); else go(k); };
   const need = (v) => appId ? null : 'Open an application first.';
   let page;
