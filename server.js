@@ -126,6 +126,24 @@ const auth = wrap(async (req, res, next) => {
 });
 app.use('/api', auth);
 app.get('/api/me', (req, res) => res.json(req.user));
+const PROFILE_COLS = 'id,name,email,phone,role,dob,gender,address,city,state,pincode,guardian_name,guardian_phone,designation,department,about,created_at';
+app.get('/api/profile', wrap(async (req, res) => res.json((await q('SELECT ' + PROFILE_COLS + ' FROM users WHERE id=$1', [req.user.id])).rows[0])));
+app.put('/api/profile', wrap(async (req, res) => {
+  const b = req.body || {}, t = (k, max) => (typeof b[k] === 'string' ? b[k].trim().slice(0, max) : '');
+  const name = t('name', 100), phone = t('phone', 10), dob = t('dob', 10), gender = t('gender', 20), pincode = t('pincode', 6), gphone = t('guardian_phone', 10);
+  if (!name) return res.status(400).json({ error: 'Name is required' });
+  if (!/^\d{10}$/.test(phone)) return res.status(400).json({ error: 'Phone must be 10 digits' });
+  if (dob && (!/^\d{4}-\d{2}-\d{2}$/.test(dob) || isNaN(Date.parse(dob)) || new Date(dob) > new Date())) return res.status(400).json({ error: 'Enter a valid date of birth' });
+  if (gender && !['Male', 'Female', 'Other'].includes(gender)) return res.status(400).json({ error: 'Invalid gender' });
+  if (pincode && !/^\d{6}$/.test(pincode)) return res.status(400).json({ error: 'PIN code must be 6 digits' });
+  if (gphone && !/^\d{10}$/.test(gphone)) return res.status(400).json({ error: 'Guardian phone must be 10 digits' });
+  const admin = req.user.role === 'admin';
+  await q('UPDATE users SET name=$1, phone=$2, dob=$3, gender=$4, address=$5, city=$6, state=$7, pincode=$8, guardian_name=$9, guardian_phone=$10, designation=$11, department=$12, about=$13 WHERE id=$14',
+    [name, phone, dob || null, gender || null, t('address', 250) || null, t('city', 80) || null, t('state', 80) || null, pincode || null,
+     admin ? null : (t('guardian_name', 100) || null), admin ? null : (gphone || null),
+     admin ? (t('designation', 100) || null) : null, admin ? (t('department', 100) || null) : null, t('about', 500) || null, req.user.id]);
+  res.json((await q('SELECT ' + PROFILE_COLS + ' FROM users WHERE id=$1', [req.user.id])).rows[0]);
+}));
 app.post('/api/change-password', wrap(async (req, res) => {
   const { current, next } = req.body || {};
   const row = (await q('SELECT password FROM users WHERE id=$1', [req.user.id])).rows[0];
