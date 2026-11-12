@@ -34,7 +34,7 @@ input.bad,select.bad{border-color:#d62839;background:#fff6f6}.okt{color:var(--ok
 .st.on i{background:var(--navy);color:#fff}.st.on{color:var(--navy);font-weight:600}.st.done i{background:var(--ok);color:#fff}
 .alert{border-radius:8px;padding:10px 14px;margin:12px 0}.al-i{background:#e8f0fe;border:1px solid #c9d9fb}.al-e{background:#fdecec;border:1px solid #f5c2c2;color:#a11}.al-o{background:#e9f7ee;border:1px solid #bfe3cb}.al-w{background:#fff6e0;border:1px solid #f1deaa}
 table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--bd);vertical-align:middle}th{background:#f1f4fb;font-size:12px}.tw{overflow-x:auto}
-.tag{padding:2px 10px;border-radius:99px;font-size:12px;background:#eef1f8;white-space:nowrap}.tag.Success,.tag.Admitted,.tag.Uploaded{background:#d9f2e2;color:#0d6a30}.tag.Pending,.tag.Waitlisted,.tag.Draft{background:#fdecd0;color:#8a5200}.tag.Rejected{background:#f8d7d7;color:#9b1c1c}.tag.Submitted{background:#dbe7ff;color:#1c3f94}
+.tag{padding:2px 10px;border-radius:99px;font-size:12px;background:#eef1f8;white-space:nowrap}.tag.st-Registered{background:#e9ecf2;color:#555}.tag.st-Forminprogress,.tag.st-Uploadingdocuments,.tag.st-Awaitingpayment{background:#fdecd0;color:#8a5200}.tag.st-Submitted{background:#dce6fb;color:#1b3f9a}.tag.st-Admitted{background:#d9f2e2;color:#0d6a30}.tag.st-Waitlisted{background:#fdecd0;color:#8a5200}.tag.st-Rejected{background:#fbdcdc;color:#a02020}.tag.Success,.tag.Admitted,.tag.Uploaded{background:#d9f2e2;color:#0d6a30}.tag.Pending,.tag.Waitlisted,.tag.Draft{background:#fdecd0;color:#8a5200}.tag.Rejected{background:#f8d7d7;color:#9b1c1c}.tag.Submitted{background:#dbe7ff;color:#1c3f94}
 .auth{max-width:1000px;margin:30px auto;display:grid;grid-template-columns:1fr 1fr;background:#fff;border:1px solid var(--bd);border-radius:12px;overflow:hidden}
 .auth .l{background:linear-gradient(#e3eeff,#f4f8ff);padding:40px 24px;text-align:center;color:var(--navy);display:flex;flex-direction:column;justify-content:center}.auth .l img{width:min(300px,85%);height:auto;margin:0 auto 14px}
 .auth .r{padding:30px}.auth .r h2{text-align:center}.auth .r .sub{text-align:center}
@@ -597,20 +597,98 @@ function Profile({ user, setUser, go }) {
   </div>);
 }
 
+const SECTIONS = [
+  ['Personal Details', [['full_name', 'Full Name'], ['dob', 'Date of Birth'], ['gender', 'Gender'], ['aadhaar', 'Aadhaar'], ['nationality', 'Nationality'], ['category', 'Category'], ['religion', 'Religion'], ['blood_group', 'Blood Group']]],
+  ['Contact & Address', [['mobile', 'Mobile'], ['alt_mobile', 'Alternate Mobile'], ['email', 'Email'], ['address1', 'Address Line 1'], ['address2', 'Address Line 2'], ['city', 'City'], ['state', 'State'], ['pin', 'PIN Code'], ['country', 'Country']]],
+  ['Parent / Guardian', [['guardian_name', 'Name'], ['relation', 'Relation'], ['guardian_mobile', 'Mobile'], ['guardian_email', 'Email'], ['occupation', 'Occupation'], ['income', 'Annual Income']]],
+  ['Academic Details', [['board10', 'Class 10 Board'], ['school10', 'Class 10 School'], ['year10', 'Class 10 Year'], ['roll10', 'Class 10 Roll No.'], ['marks10', 'Class 10 Marks %'], ['board12', 'Class 12 Board'], ['school12', 'Class 12 School'], ['year12', 'Class 12 Year'], ['roll12', 'Class 12 Roll No.'], ['marks12', 'Class 12 Marks %'], ['other_qual', 'Other Qualification'], ['entrance_rank', 'Entrance Rank'], ['entrance_roll', 'Entrance Roll No.'], ['domicile', 'Domicile']]]];
+const STAGES = ['Registered', 'Form in progress', 'Uploading documents', 'Awaiting payment', 'Submitted', 'Admitted', 'Waitlisted', 'Rejected'];
+const STAGE_HELP = { Registered: 'Created an account but has not started an application', 'Form in progress': 'Application form saved as draft, no documents yet', 'Uploading documents': 'Some documents uploaded, not all mandatory ones', 'Awaiting payment': 'All mandatory documents uploaded, payment not done', Submitted: 'Paid and submitted, awaiting merit result' };
+const csv = (name, head, rows) => { const e = v => '"' + String(v ?? '').replace(/"/g, '""') + '"'; const t = [head.map(e).join(','), ...rows.map(r => r.map(e).join(','))].join('\n');
+  const l = document.createElement('a'); l.href = URL.createObjectURL(new Blob([t], { type: 'text/csv' })); l.download = name; l.click(); };
+const dt = s => s ? new Date(s.replace(' ', 'T') + (String(s).includes('Z') ? '' : 'Z')).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '-';
+const StageTag = ({ s }) => <span className={'tag st-' + s.replace(/ /g, '')}>{s}</span>;
+
+function AdminDetail({ row, onBack, reload }) {
+  const [a, setA] = useState(null), [err, setErr] = useState(''), [msg, setMsg] = useState('');
+  useEffect(() => { if (row.app_id) API('/applications/' + row.app_id).then(setA).catch(e => setErr(e.message)); }, [row.app_id]);
+  const setStatus = async status => { try { await API('/admin/applications/' + row.app_id, 'PATCH', { status }); setA({ ...a, status }); setMsg('Status changed to ' + status + ' and the student was notified.'); reload(); } catch (e) { setErr(e.message); } };
+  const view = async t => { try { const d = await API('/admin/applications/' + row.app_id + '/documents/' + t); const bin = atob(d.data), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); window.open(URL.createObjectURL(new Blob([u], { type: d.mime })), '_blank'); } catch (e) { setErr(e.message); } };
+  return (<div><button className="btn o sm" onClick={onBack}>← Back to list</button>
+    <h1 style={{ marginTop: 12 }}>{row.name}</h1><p className="sub">Student details and application</p>
+    {err && <div className="alert al-e">{err}</div>}{msg && <div className="alert al-o">✓ {msg}</div>}
+    <div className="card"><h3>Account</h3><div className="kv"><span>Name</span><span>{row.name}</span><span>Email</span><span>{row.email} {row.email_verified ? <span className="tag Success">verified</span> : <span className="tag Pending">not verified</span>}</span><span>Phone</span><span>{row.phone || '-'}</span><span>Registered On</span><span>{dt(row.created_at)}</span><span>Stage</span><span>{row.stage ? <StageTag s={row.stage} /> : <span className={'tag ' + row.status}>{row.status}</span>}</span><span>Applications</span><span>{row.app_count ?? 1}</span></div></div>
+    {!row.app_id && <div className="alert al-i" style={{ marginTop: 14 }}>This student has registered but has not started an application yet.</div>}
+    {row.app_id && !a && !err && <div className="center">Loading…</div>}
+    {a && <div>
+      <div className="card" style={{ marginTop: 14 }}><h3>Application Summary</h3><div className="kv"><span>Application No.</span><span>{a.app_no}</span><span>Program</span><span>{a.program_code ? 'B.Tech in ' + a.program_code : '-'}</span><span>Merit Score</span><span><b>{a.merit ?? '-'}</b></span><span>Status</span><span><span className={'tag ' + a.status}>{a.status}</span></span><span>Payment</span><span><span className={'tag ' + a.payment_status}>{a.payment_status}</span></span><span>Created</span><span>{dt(a.created_at)}</span><span>Submitted</span><span>{a.submitted_at ? dt(a.submitted_at) : 'Not submitted'}</span></div>
+        {a.status !== 'Draft' ? <div style={{ marginTop: 12 }}><label>Change status</label><select value={a.status} onChange={e => setStatus(e.target.value)} style={{ maxWidth: 220 }}>{['Submitted', 'Admitted', 'Waitlisted', 'Rejected'].map(s => <option key={s}>{s}</option>)}</select></div>
+          : <p className="sub" style={{ marginTop: 10 }}>This is still a draft: the student has not paid or submitted it yet, so its status cannot be changed.</p>}</div>
+      <div className="card" style={{ marginTop: 14 }}><h3>Payment</h3>{a.payment ? <div className="kv"><span>Transaction ID</span><span>{a.payment.txn_id}</span><span>Method</span><span>{a.payment.method}</span><span>Amount</span><span>{money(a.payment.amount)}</span><span>Paid On</span><span>{fdate(a.payment.paid_at)}</span></div> : <p style={{ margin: 0 }}>⏳ No payment received yet.</p>}</div>
+      <div className="card tw" style={{ marginTop: 14 }}><h3>Documents</h3><table><thead><tr><th>Document</th><th>Status</th><th>File</th><th>Size</th><th>Uploaded</th><th></th></tr></thead><tbody>
+        {DOCS.map(([k, l, req]) => { const d = a.documents.find(x => x.doc_type === k); return <tr key={k}><td>{l}{req && <span className="rq"> *</span>}</td><td>{d ? <span className="tag Success">Uploaded</span> : <span className={'tag ' + (req ? 'Rejected' : 'Draft')}>{req ? 'Missing' : 'Not provided'}</span>}</td><td>{d ? d.filename : '-'}</td><td>{d ? Math.round(d.size / 1024) + ' KB' : '-'}</td><td>{d ? fdate(d.uploaded_at) : '-'}</td><td>{d && <button className="btn sm" onClick={() => view(k)}>View</button>}</td></tr>; })}</tbody></table></div>
+      {SECTIONS.map(([t, fs]) => <div key={t} className="card" style={{ marginTop: 14 }}><h3>{t}</h3><div className="kv">{fs.map(([k, l]) => <React.Fragment key={k}><span>{l}</span><span>{a[k] == null || a[k] === '' ? <span style={{ color: '#999' }}>-</span> : String(a[k])}</span></React.Fragment>)}</div></div>)}
+    </div>}</div>);
+}
+
 function Admin() {
-  const [rows, setRows] = useState([]), [err, setErr] = useState('');
-  const load = () => API('/admin/applications').then(setRows).catch(e => setErr(e.message)); useEffect(() => { load(); }, []);
-  const run = async () => { await API('/admin/allocate', 'POST'); load(); };
-  const set = async (id, status) => { await API('/admin/applications/' + id, 'PATCH', { status }); load(); };
-  const c = s => rows.filter(r => r.status === s).length;
-  return (<div><h1>Admin Dashboard</h1><p className="sub">Submitted applications ranked by merit (40% Class 10 + 60% Class 12) within each program.</p>
-    <div className="grid g3"><div className="card"><h3>{rows.length}</h3>Submitted</div><div className="card"><h3>{c('Admitted')}</h3>Admitted</div><div className="card"><h3>{c('Waitlisted')}</h3>Waitlisted</div></div>
-    <button className="btn" onClick={run}>Run merit allocation</button> <span className="sub">Seats per program = intake; others waitlisted.</span>
-    {err && <div className="alert al-e">{err}</div>}
-    <div className="card tw" style={{ marginTop: 14 }}><table><thead><tr><th>Application No.</th><th>Name</th><th>Program</th><th>10th</th><th>12th</th><th>Merit</th><th>Payment</th><th>Status</th><th>Set</th></tr></thead><tbody>
-      {rows.map(r => <tr key={r.id}><td>{r.app_no}</td><td>{r.full_name}</td><td>{r.program_code}</td><td>{r.marks10}</td><td>{r.marks12}</td><td><b>{r.merit}</b></td><td><span className={'tag ' + r.payment_status}>{r.payment_status}</span></td><td><span className={'tag ' + r.status}>{r.status}</span></td>
-        <td><select value={r.status} onChange={e => set(r.id, e.target.value)}>{['Submitted', 'Admitted', 'Waitlisted', 'Rejected'].map(s => <option key={s}>{s}</option>)}</select></td></tr>)}
-      {!rows.length && <tr><td colSpan="9">No submitted applications yet.</td></tr>}</tbody></table></div></div>);
+  const [tab, setTab] = useState('overview'), [ov, setOv] = useState(null), [stu, setStu] = useState([]), [apps, setApps] = useState([]), [err, setErr] = useState(''), [sel, setSel] = useState(null), [ok, setOk] = useState('');
+  const [q, setQ] = useState(''), [stage, setStage] = useState(''), [ver, setVer] = useState(''), [fs, setFs] = useState(''), [fp, setFp] = useState(''), [fpay, setFpay] = useState('');
+  const load = () => { API('/admin/overview').then(setOv).catch(e => setErr(e.message)); API('/admin/students').then(setStu).catch(() => {}); API('/admin/applications').then(setApps).catch(() => {}); };
+  useEffect(() => { load(); }, []);
+  const run = async () => { await API('/admin/allocate', 'POST'); setOk('Merit allocation completed and students were notified.'); load(); };
+  const setStatus = async (id, status) => { await API('/admin/applications/' + id, 'PATCH', { status }); load(); };
+  const jump = s => { setStage(s); setQ(''); setVer(''); setTab('students'); window.scrollTo(0, 0); };
+  if (sel) return <AdminDetail row={sel} onBack={() => setSel(null)} reload={load} />;
+  const ql = q.trim().toLowerCase();
+  const fStu = stu.filter(r => (!stage || r.stage === stage) && (!ver || (ver === 'yes') === !!r.email_verified) && (!ql || [r.name, r.email, r.phone, r.app_no].some(v => (v || '').toLowerCase().includes(ql))));
+  const fApps = apps.filter(r => (!fs || r.status === fs) && (!fp || r.program_code === fp) && (!fpay || r.payment_status === fpay) && (!ql || [r.full_name, r.email, r.app_no].some(v => (v || '').toLowerCase().includes(ql))));
+  const S = k => (ov && ov.stages[k]) || 0;
+  const Card = ({ n, l, sub, onClick, tone }) => <div className="card" style={{ cursor: onClick ? 'pointer' : 'default', borderLeft: '4px solid ' + (tone || 'var(--blue)') }} onClick={onClick}><div style={{ fontSize: 28, fontWeight: 700 }}>{n}</div><div style={{ fontWeight: 600 }}>{l}</div>{sub && <div style={{ color: '#777', fontSize: 12, marginTop: 2 }}>{sub}</div>}</div>;
+  const tabs = [['overview', '📊 Overview'], ['students', '👥 All Students (' + stu.length + ')'], ['apps', '📄 Applications (' + apps.length + ')']];
+  const toolbar = children => <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '14px 0', alignItems: 'end' }}>{children}</div>;
+  return (<div><h1>Admin Dashboard</h1><p className="sub">See every registered student, how far they have got, and manage admissions.</p>
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', borderBottom: '1px solid var(--bd)', paddingBottom: 10 }}>{tabs.map(([k, l]) => <button key={k} className={'btn sm' + (tab === k ? '' : ' o')} onClick={() => { setTab(k); setQ(''); }}>{l}</button>)}</div>
+    {err && <div className="alert al-e">{err}</div>}{ok && <div className="alert al-o">✓ {ok}</div>}
+    {tab === 'overview' && (!ov ? <div className="center">Loading…</div> : <div>
+      <h3 style={{ marginTop: 16 }}>Students</h3>
+      <div className="grid g3"><Card n={ov.registered} l="Registered students" sub="All applicant accounts" onClick={() => jump('')} /><Card n={ov.verified} l="Email verified" tone="#1f9d55" onClick={() => { setStage(''); setVer('yes'); setTab('students'); }} /><Card n={ov.unverified} l="Email not verified" tone="#d98a00" onClick={() => { setStage(''); setVer('no'); setTab('students'); }} /></div>
+      <h3 style={{ marginTop: 18 }}>Where students are in the process <span style={{ fontWeight: 400, color: '#777', fontSize: 13 }}>(click a card to see those students)</span></h3>
+      <div className="grid g3"><Card n={S('Registered')} l="Registered, not applied" sub={STAGE_HELP.Registered} tone="#8a94a6" onClick={() => jump('Registered')} />
+        <Card n={S('Form in progress')} l="Form in progress" sub={STAGE_HELP['Form in progress']} tone="#d98a00" onClick={() => jump('Form in progress')} />
+        <Card n={S('Uploading documents')} l="Uploading documents" sub={STAGE_HELP['Uploading documents']} tone="#d98a00" onClick={() => jump('Uploading documents')} />
+        <Card n={S('Awaiting payment')} l="Awaiting payment" sub={STAGE_HELP['Awaiting payment']} tone="#d98a00" onClick={() => jump('Awaiting payment')} />
+        <Card n={S('Submitted')} l="Submitted (paid)" sub={STAGE_HELP.Submitted} onClick={() => jump('Submitted')} />
+        <Card n={ov.apps.paid} l="Payments received" sub={ov.apps.total + ' applications in total'} tone="#1f9d55" /></div>
+      <h3 style={{ marginTop: 18 }}>Admission results</h3>
+      <div className="grid g3"><Card n={S('Admitted')} l="Admitted" tone="#1f9d55" onClick={() => jump('Admitted')} /><Card n={S('Waitlisted')} l="Waitlisted" tone="#d98a00" onClick={() => jump('Waitlisted')} /><Card n={S('Rejected')} l="Rejected" tone="#c0392b" onClick={() => jump('Rejected')} /></div>
+      <h3 style={{ marginTop: 18 }}>Programs</h3>
+      <div className="card tw"><table><thead><tr><th>Program</th><th>Intake (seats)</th><th>Drafts</th><th>Submitted</th><th>Admitted</th><th>Waitlisted</th><th>Rejected</th><th>Seats left</th></tr></thead><tbody>
+        {ov.programs.map(r => <tr key={r.code}><td><b>{r.code}</b></td><td>{r.intake}</td><td>{r.drafts}</td><td>{r.submitted}</td><td>{r.admitted}</td><td>{r.waitlisted}</td><td>{r.rejected}</td><td>{Math.max(0, r.intake - r.admitted)}</td></tr>)}</tbody></table></div>
+      <div className="card" style={{ marginTop: 14 }}><h3>Merit allocation</h3><p style={{ marginTop: 0 }}>Ranks submitted applications by merit (40% Class 10 + 60% Class 12) in each program. Seats = intake, the rest are waitlisted. Students are notified.</p><button className="btn" onClick={run}>Run merit allocation</button></div></div>)}
+    {tab === 'students' && <div>
+      {toolbar(<React.Fragment><div><label>Search</label><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, email, phone or application no." /></div>
+        <div><label>Stage</label><select value={stage} onChange={e => setStage(e.target.value)}><option value="">All stages</option>{STAGES.map(s => <option key={s}>{s}</option>)}</select></div>
+        <div><label>Email</label><select value={ver} onChange={e => setVer(e.target.value)}><option value="">All</option><option value="yes">Verified</option><option value="no">Not verified</option></select></div>
+        <button className="btn o sm" onClick={() => { setQ(''); setStage(''); setVer(''); }}>Clear</button>
+        <button className="btn sm" onClick={() => csv('students.csv', ['Name', 'Email', 'Phone', 'Email verified', 'Registered on', 'Stage', 'Application no', 'Program', 'Payment', 'Status', 'Documents uploaded (of 4 mandatory)'], fStu.map(r => [r.name, r.email, r.phone, r.email_verified ? 'Yes' : 'No', dt(r.created_at), r.stage, r.app_no || '', r.program_code || '', r.app_id ? r.payment_status : '', r.app_id ? r.status : '', r.app_id ? r.docs : '']))}>⬇ Export CSV</button></React.Fragment>)}
+      <div className="card tw"><div style={{ padding: '8px 4px', color: '#666', fontSize: 13 }}>Showing {fStu.length} of {stu.length} students</div><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Registered</th><th>Stage</th><th>Program</th><th>Payment</th><th></th></tr></thead><tbody>
+        {fStu.map(r => <tr key={r.id}><td>{r.name}</td><td>{r.email} {!r.email_verified && <span className="tag Pending" title="Email not verified yet">unverified</span>}</td><td>{r.phone || '-'}</td><td>{dt(r.created_at)}</td><td><StageTag s={r.stage} /></td><td>{r.program_code || '-'}</td><td>{r.app_id ? <span className={'tag ' + r.payment_status}>{r.payment_status}</span> : '-'}</td><td><button className="btn sm" onClick={() => setSel(r)}>View details</button></td></tr>)}
+        {!fStu.length && <tr><td colSpan="8">No students match.</td></tr>}</tbody></table></div></div>}
+    {tab === 'apps' && <div>
+      {toolbar(<React.Fragment><div><label>Search</label><input value={q} onChange={e => setQ(e.target.value)} placeholder="Name, email or application no." /></div>
+        <div><label>Status</label><select value={fs} onChange={e => setFs(e.target.value)}><option value="">All</option>{['Submitted', 'Admitted', 'Waitlisted', 'Rejected'].map(s => <option key={s}>{s}</option>)}</select></div>
+        <div><label>Program</label><select value={fp} onChange={e => setFp(e.target.value)}><option value="">All</option>{(ov ? ov.programs : []).map(r => <option key={r.code}>{r.code}</option>)}</select></div>
+        <div><label>Payment</label><select value={fpay} onChange={e => setFpay(e.target.value)}><option value="">All</option><option>Success</option><option>Pending</option></select></div>
+        <button className="btn o sm" onClick={() => { setQ(''); setFs(''); setFp(''); setFpay(''); }}>Clear</button>
+        <button className="btn sm" onClick={() => csv('applications.csv', ['Application no', 'Name', 'Email', 'Program', 'Class 10 %', 'Class 12 %', 'Merit', 'Payment', 'Status'], fApps.map(r => [r.app_no, r.full_name, r.email, r.program_code, r.marks10, r.marks12, r.merit, r.payment_status, r.status]))}>⬇ Export CSV</button></React.Fragment>)}
+      <p className="sub">Submitted applications, ranked by merit within each program. Drafts are listed under <b>All Students</b>.</p>
+      <div className="card tw"><table><thead><tr><th>Application No.</th><th>Name</th><th>Program</th><th>10th</th><th>12th</th><th>Merit</th><th>Payment</th><th>Status</th><th>Set</th><th></th></tr></thead><tbody>
+        {fApps.map(r => <tr key={r.id}><td>{r.app_no}</td><td>{r.full_name}</td><td>{r.program_code}</td><td>{r.marks10}</td><td>{r.marks12}</td><td><b>{r.merit}</b></td><td><span className={'tag ' + r.payment_status}>{r.payment_status}</span></td><td><span className={'tag ' + r.status}>{r.status}</span></td>
+          <td><select value={r.status} onChange={e => setStatus(r.id, e.target.value)}>{['Submitted', 'Admitted', 'Waitlisted', 'Rejected'].map(s => <option key={s}>{s}</option>)}</select></td>
+          <td><button className="btn sm" onClick={() => setSel(stu.find(x => x.app_id === r.id) || { id: r.id, name: r.full_name, email: r.email, app_id: r.id, status: r.status, payment_status: r.payment_status, email_verified: true })}>View</button></td></tr>)}
+        {!fApps.length && <tr><td colSpan="10">No applications match.</td></tr>}</tbody></table></div></div>}
+  </div>);
 }
 
 function App() {
