@@ -57,7 +57,9 @@ app.post('/api/register', wrap(async (req, res) => {
 }));
 app.post('/api/login', wrap(async (req, res) => {
   const { email, password, role } = req.body;
-  const u = (await q('SELECT * FROM users WHERE email=$1', [(email || '').trim().toLowerCase()])).rows[0];
+  const id = (email || '').trim().toLowerCase();
+  let u = (await q('SELECT * FROM users WHERE LOWER(email)=$1', [id])).rows[0];
+  if (!u && id && !id.includes('@')) { const m = (await q("SELECT * FROM users WHERE LOWER(email) LIKE $1 AND role='applicant'", [id.replace(/[\\%_]/g, '') + '@%'])).rows; if (m.length === 1) u = m[0]; }
   if (!u || !check(password || '', u.password) || u.role !== (role || 'applicant')) return res.status(401).json({ error: 'Invalid credentials for ' + (role || 'applicant') + ' login' });
   if (u.email_verified === false) return res.status(403).json({ code: 'unverified', error: 'Please verify your email first. We sent a link to ' + u.email + '.' });
   const token = crypto.randomUUID(); sessions.set(token, u.id);
@@ -236,6 +238,8 @@ app.get('/api/admin/overview', admin, wrap(async (req, res) => {
   const apps = (await q(`SELECT COUNT(*) FILTER (WHERE status <> 'Draft')::int AS submitted, COUNT(*) FILTER (WHERE payment_status = 'Success')::int AS paid, COUNT(*)::int AS total FROM applications`)).rows[0];
   res.json({ registered: st.length, verified: n(r => r.email_verified), unverified: n(r => !r.email_verified), notApplied: by.Registered || 0, stages: by, apps, programs });
 }));
+app.get('/api/admin/payments', admin, wrap(async (req, res) => res.json((await q(`SELECT p.id, p.txn_id, p.method, p.amount, p.status, p.paid_at, a.id AS app_id, a.app_no, a.full_name, a.email, a.program_code
+  FROM payments p JOIN applications a ON a.id = p.application_id ORDER BY p.paid_at DESC, p.id DESC`)).rows)));
 app.get('/api/admin/applications/:id/documents/:type', admin, wrap(async (req, res) => {
   if (!/^\d+$/.test(req.params.id)) return res.status(404).json({ error: 'Not found' });
   const d = (await q('SELECT filename,mime,data FROM documents WHERE application_id=$1 AND doc_type=$2', [req.params.id, req.params.type])).rows[0];
@@ -252,6 +256,11 @@ app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
     ON CONFLICT (code) DO NOTHING`);
   if (!(await q("SELECT 1 FROM users WHERE role='admin'")).rowCount)
     await q("INSERT INTO users(name,email,password,role) VALUES ('Administrator','admin',$1,'admin')", [hash('admin123')]);
+  await q(`UPDATE users SET designation=COALESCE(designation,'Admission Officer'), department=COALESCE(department,'Admission Cell'),
+      address=COALESCE(address,'Institute of Engineering & Management, Y-12, GN Block, Sector V, Salt Lake Electronics Complex'), city=COALESCE(city,'Kolkata'),
+      state=COALESCE(state,'West Bengal'), pincode=COALESCE(pincode,'700091'),
+      about=COALESCE(about,'Manages the undergraduate admission process: reviews applications and documents, tracks payments, runs merit allocation and publishes admission results.')
+    WHERE role='admin'`);
   if (process.env.SEED_DEMO === 'true') { const n = await require('./seed-demo')(q); console.log('Demo students added:', n); }
   app.listen(process.env.PORT || 5000, () => console.log('IEM Portal (PostgreSQL) running at http://localhost:' + (process.env.PORT || 5000)));
 })().catch(e => { console.error('Startup failed:', e.message); process.exit(1); });
