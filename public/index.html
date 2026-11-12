@@ -141,7 +141,6 @@ function Login({ go, onLogin }) {
       <p style={{ textAlign: 'center', color: '#888' }}>OR</p>
       <button className="btn o" style={{ width: '100%' }} onClick={() => go('register')}>Go to Registration</button>
       <p style={{ textAlign: 'center' }}>Login as: <a style={{ cursor: 'pointer', fontWeight: role === 'applicant' ? 700 : 400, color: 'var(--blue)' }} onClick={() => setRole('applicant')}>Applicant</a> | <a style={{ cursor: 'pointer', fontWeight: role === 'admin' ? 700 : 400, color: 'var(--blue)' }} onClick={() => setRole('admin')}>Admin</a></p>
-      {role === 'admin' && <p className="sub">Demo admin: username <b>admin</b> / password <b>admin123</b></p>}
     </div></div><Footer /></div>);
 }
 
