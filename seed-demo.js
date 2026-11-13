@@ -59,6 +59,9 @@ module.exports = async function seedDemo(q) {
     await q('INSERT INTO payments(application_id,txn_id,method,amount,status) VALUES ($1,$2,$3,$4,$5)', [app.id, txn, 'UPI', 91000, 'Success']);
     await q('INSERT INTO notifications(user_id,message) VALUES ($1,$2)', [uid, `Application ${app.app_no} submitted and payment of Rs. 91000 received (${txn}).`]);
   }
+  // Make sure every demo account can log in with the demo password, even if it was created by an older version.
+  const fixed = await q("UPDATE users SET password=$1, email_verified=TRUE, role='applicant' WHERE email LIKE '%@demo.iem'", [pw]);
+  console.log('Demo accounts ready:', fixed.rowCount, '(password: ' + DEMO_PASSWORD + ')');
   return created;
 };
 module.exports.DEMO_PASSWORD = DEMO_PASSWORD;
