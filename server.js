@@ -60,6 +60,7 @@ app.post('/api/login', wrap(async (req, res) => {
   const id = (email || '').trim().toLowerCase();
   let u = (await q('SELECT * FROM users WHERE LOWER(email)=$1', [id])).rows[0];
   if (!u && id && !id.includes('@')) { const m = (await q("SELECT * FROM users WHERE LOWER(email) LIKE $1 AND role='applicant'", [id.replace(/[\\%_]/g, '') + '@%'])).rows; if (m.length === 1) u = m[0]; }
+  if (!u && id && !id.includes('@')) { const m = (await q("SELECT * FROM users WHERE LOWER(REGEXP_REPLACE(TRIM(name), '\\s+', ' ', 'g'))=$1 AND role='applicant'", [id.replace(/\s+/g, ' ')])).rows; if (m.length === 1) u = m[0]; }
   if (!u || !check(password || '', u.password) || u.role !== (role || 'applicant')) return res.status(401).json({ error: 'Invalid credentials for ' + (role || 'applicant') + ' login' });
   if (u.email_verified === false) return res.status(403).json({ code: 'unverified', error: 'Please verify your email first. We sent a link to ' + u.email + '.' });
   const token = crypto.randomUUID(); sessions.set(token, u.id);
