@@ -58,6 +58,7 @@ app.post('/api/register', wrap(async (req, res) => {
 app.post('/api/login', wrap(async (req, res) => {
   const { email, password, role } = req.body;
   const id = (email || '').trim().toLowerCase();
+  if (!id || !password) return res.status(400).json({ error: 'Please enter your ' + (!id ? 'email or username' : 'password') });
   let u = (await q('SELECT * FROM users WHERE LOWER(email)=$1', [id])).rows[0];
   if (!u && id && !id.includes('@')) { const m = (await q("SELECT * FROM users WHERE LOWER(email) LIKE $1 AND role='applicant'", [id.replace(/[\\%_]/g, '') + '@%'])).rows; if (m.length === 1) u = m[0]; }
   if (!u && id && !id.includes('@')) { const m = (await q("SELECT * FROM users WHERE LOWER(REGEXP_REPLACE(TRIM(name), '\\s+', ' ', 'g'))=$1 AND role='applicant'", [id.replace(/\s+/g, ' ')])).rows; if (m.length === 1) u = m[0]; }
